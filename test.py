@@ -8,7 +8,8 @@ import pickle
 from data.coco_pose.ref import ref_dir, flipRef
 from utils.misc import get_transform, kpt_affine, resize
 from utils.group import HeatmapParser
-
+from util import draw_limbs
+import matplotlib.pyplot as plt
 valid_filepath = ref_dir + '/validation.pkl'
 
 parser = HeatmapParser(detection_val=0.1)
@@ -16,8 +17,11 @@ parser = HeatmapParser(detection_val=0.1)
 def refine(det, tag, keypoints):
     """
     Given initial keypoint predictions, we identify missing joints
+    det: [17, 128, 128]
+    tag: [17, 128, 128, 2]
+    keypints: [17， 5]
     """
-    if len(tag.shape) == 3:
+    if len(tag.shape) == 3: # 一般是[17, 128, 128, 2] 2是翻转检测结果
         tag = tag[:,:,:,None]
 
     tags = []
@@ -76,56 +80,58 @@ def multiperson(img, func, mode):
 
     height, width = img.shape[0:2]
     center = (width/2, height/2)
-    dets, tags = None, []
-    for idx, i in enumerate(scales):
+    dets, tags = None, [] # 存储不同尺度的检测结果
+    for idx, i in enumerate(scales): # 对于每一个尺度
         scale = max(height, width)/200
         input_res = max(height, width)
         inp_res = int((i * 512 + 63)//64 * 64)
         res = (inp_res, inp_res)
 
         mat_ = get_transform(center, scale, res)[:2]
-        inp = cv2.warpAffine(img, mat_, res)/255
+        inp = cv2.warpAffine(img, mat_, res)/255 #[512, 512, 3]
 
         def array2dict(tmp):
-            return {
-                'det': tmp[0][:,:,:17],
-                'tag': tmp[0][:,-1, 17:34]
+            return { # tmp[0]  [bs,4, 68, 128, 128]
+                'det': tmp[0][:,:,:17], #  前16个通道作为 [1,4, 17, 128, 128] 注意这里取了全部stage的输出
+                'tag': tmp[0][:,-1, 17:34] #  [1, 17, 128, 128] 注意这里只取了最后stage的tag输出
             }
 
-        tmp1 = array2dict(func([inp]))
-        tmp2 = array2dict(func([inp[:,::-1]]))
-
+        tmp1 = array2dict(func([inp])) # 进行网络推理
+        tmp2 = array2dict(func([inp[:,::-1]])) # 将图片左右镜像翻转之后再次预测
+        # import matplotlib.pyplot as plt
+        # plt.imshow(inp[:, ::-1])
+        # plt.show()
         tmp = {}
         for ii in tmp1:
-            tmp[ii] = np.concatenate((tmp1[ii], tmp2[ii]),axis=0)
-
-        det = tmp['det'][0, -1] + tmp['det'][1, -1, :, :, ::-1][flipRef]
+            tmp[ii] = np.concatenate((tmp1[ii], tmp2[ii]),axis=0) # det and tag [2,4, 17, 128, 128] [2, 17, 128, 128]
+        # 将翻转之后的图像检测结果也结合起来,主要关节点的序号也需要利用flipref来变换一下, 这里只要最后得一个stage的输出
+        det = tmp['det'][0, -1] + tmp['det'][1, -1, :, :, ::-1][flipRef] # [17, 128, 128]
         if det.max() > 10:
             continue
         if dets is None:
-            dets = det
-            mat = np.linalg.pinv(np.array(mat_).tolist() + [[0,0,1]])[:2]
+            dets = det # [17, 128, 128]
+            mat = np.linalg.pinv(np.array(mat_).tolist() + [[0,0,1]])[:2] # 计算先前图像变换的逆矩阵
         else:
             dets = dets + resize(det, dets.shape[1:3]) 
 
-        if abs(i-1)<0.5:
-            res = dets.shape[1:3]
+        if abs(i-1)<0.5: # 将tags预测与resize到与det大小一致
+            res = dets.shape[1:3] # 已有的检测结果对应的像素大小 要关节点的序号也需要利用flipref来变换一下
             tags += [resize(tmp['tag'][0], res), resize(tmp['tag'][1,:, :, ::-1][flipRef], res)]
 
     if dets is None or len(tags) == 0:
         return [], []
 
-    tags = np.concatenate([i[:,:,:,None] for i in tags], axis=3)
-    dets = dets/len(scales)/2
+    tags = np.concatenate([i[:,:,:,None] for i in tags], axis=3) # [17, 128, 128, 2] 拼接起来
+    dets = dets/len(scales)/2 # [17, 128, 128] #将不同尺度的检测结果平均
     
-    dets = np.minimum(dets, 1)
-    grouped = parser.parse(np.float32([dets]), np.float32([tags]))[0]
+    dets = np.minimum(dets, 1) # [17 128 128]
+    grouped = parser.parse(np.float32([dets]), np.float32([tags]))[0] # [num_person, 17, 5]
 
 
-    scores = [i[:, 2].mean() for  i in grouped]
+    scores = [i[:, 2].mean() for  i in grouped] # [num_person] 用heatmap计算分数the score for every instance
 
-    for i in range(len(grouped)):
-        grouped[i] = refine(dets, tags, grouped[i])
+    for i in range(len(grouped)): # 对于检测出来的每一个人
+        grouped[i] = refine(dets, tags, grouped[i]) # 尝试找到那些没有检测到的点
 
     if len(grouped) > 0:
         grouped[:,:,:2] = kpt_affine(grouped[:,:,:2] * 4, mat)
@@ -218,31 +224,38 @@ def get_img(inp_res = 512):
 
 def main():
     from train import init
-    func, config = init()
+    func, config = init() # 模型定义与装载模型
     mode = config['opt'].mode
 
     def runner(imgs):
         return func(0, config, 'inference', imgs=torch.Tensor(np.float32(imgs)))['preds']
 
     def do(img):
-        ans, scores = multiperson(img, runner, mode)
+        ans, scores = multiperson(img, runner, mode) # [N, 17, 3] [N]
         if len(ans) > 0:
             ans = ans[:,:,:3]
 
-        pred = genDtByPred(ans)
+        pred = genDtByPred(ans) # [N]
 
         for i, score in zip( pred, scores ):
             i['score'] = float(score)
-        return pred
+        return pred # 图片的预测结果
 
     gts = []
     preds = []
 
     idx = 0
-    for anns, img in get_img(inp_res=-1):
+    for anns, img in get_img(inp_res=-1): # here return image without rescale
         idx += 1
-        gts.append(anns)
-        preds.append(do(img))
+        gts.append(anns) # 注意是multi person
+        preds.append(do(img)) # 预测结果
+        if True:
+            img_tmp = img.copy()
+            for i in preds[idx-1]: #对于这个检测结果的每一个个体
+                draw_limbs(img_tmp, i['keypoints'])
+            plt.imshow(img_tmp)
+            plt.show()
+            cv2.imwrite('{}.jpg'.format(idx), img_tmp[:,:,::-1])
 
     prefix = os.path.join('exp', config['opt'].exp)
     coco_eval(prefix, preds, gts)

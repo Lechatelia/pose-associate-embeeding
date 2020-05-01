@@ -22,7 +22,7 @@ __config__ = {
     },
 
     'train': {
-        'batchsize': 32,
+        'batchsize': 24,
         'input_res': 512,
         'output_res': 128,
         'train_iters': 1000,
@@ -82,7 +82,7 @@ def make_network(configs):
     def calc_loss(*args, **kwargs):
         return poseNet.calc_loss(*args, **kwargs)
 
-    config['net'] = Trainer(forward_net, configs['inference']['keys'], calc_loss)
+    config['net'] = Trainer(forward_net, configs['inference']['keys'], calc_loss) # 实际上是Trainner作为net
     train_cfg['optimizer'] = torch.optim.Adam(config['net'].parameters(), train_cfg['learning_rate'])
 
     exp_path = os.path.join('exp', configs['opt'].exp)
@@ -131,7 +131,8 @@ def make_network(configs):
 
             if batch_id == 200000:
                 ## decrease the learning rate after 200000 iterations
-                for param_group in optimizer.param_groups:
+                # for param_group in optimizer.param_groups:
+                for param_group in train_cfg['optimizer'].param_groups:
                     param_group['lr'] = 1e-5
 
             if phase == 'train':
@@ -143,9 +144,9 @@ def make_network(configs):
         else:
             out = {}
             net = net.eval()
-            result = net(**inputs)
+            result = net(**inputs) # [bs,4, 68, 128, 128]
             if type(result)!=list and type(result)!=tuple:
                 result = [result]
-            out['preds'] = [make_output(i) for i in result]
+            out['preds'] = [make_output(i) for i in result] # [tensor to numpy.array]
             return out
-    return make_train
+    return make_train # [bs,4, 68, 128, 128]

@@ -12,13 +12,14 @@ import pickle
 import torch
 import importlib
 import argparse
+import shutil
 
 def parse_command_line():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--task', type=str, default='pose', help='task to be trained')
-    parser.add_argument('-c', '--continue_exp', type=str, help='continue exp')
+    parser.add_argument('-c', '--continue_exp', default='pose', type=str, help='continue exp') # 测试或者继续训练就需要这个
     parser.add_argument('-e', '--exp', type=str, default='pose', help='experiments name')
-    parser.add_argument('-m', '--mode', type=str, default='single', help='scale mode')
+    parser.add_argument('-m', '--mode', type=str, default='single', help='scale mode:single or multi')
     args = parser.parse_args()
     return args
 
@@ -62,7 +63,7 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
 
 def save(config):
     resume = os.path.join('exp', config['opt'].exp)
-    resume_file = os.path.join(resume, 'checkpoint.pth.tar')
+    resume_file = os.path.join(resume, 'checkpoint' + '_' + config['train']['epoch']+ '_'+ '.pth.tar')
 
     save_checkpoint({
             'state_dict': config['inference']['net'].state_dict(),

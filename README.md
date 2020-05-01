@@ -1,5 +1,12 @@
 # Associative Embedding: Training Code
 
+中文注释代码， 对训练和测试部分进行代码注释
+
+It should be noted that:
+
+* forked from the [repo](https://github.com/princeton-vl/pose-ae-train)
+* only small changes and Chinese comments
+
 Multi-person pose estimation with PyTorch based on:
 
 **Associative Embedding: End-to-end Learning for Joint Detection and Grouping.**
