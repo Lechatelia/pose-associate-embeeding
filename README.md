@@ -4,8 +4,8 @@
 
 It should be noted that:
 
-* forked from the [repo](https://github.com/princeton-vl/pose-ae-train)
-* only small changes and Chinese comments
+* this is forked from the [repo](https://github.com/princeton-vl/pose-ae-train)
+* I only add some small changes and Chinese comments
 
 Multi-person pose estimation with PyTorch based on:
 

@@ -25,26 +25,26 @@ def refine(det, tag, keypoints):
         tag = tag[:,:,:,None]
 
     tags = []
-    for i in range(keypoints.shape[0]):
-        if keypoints[i, 2] > 0:
+    for i in range(keypoints.shape[0]): # 某一个关节点
+        if keypoints[i, 2] > 0: # 如果有检测结果
             y, x = keypoints[i][:2].astype(np.int32)
-            tags.append(tag[i, x, y])
+            tags.append(tag[i, x, y]) # 添加这个位置的tags
 
-    prev_tag = np.mean(tags, axis = 0)
+    prev_tag = np.mean(tags, axis = 0) # 求tag均值[2]
     ans = []
 
-    for i in range(keypoints.shape[0]):
-        tmp = det[i, :, :]
-        tt = (((tag[i, :, :] - prev_tag[None, None, :])**2).sum(axis = 2)**0.5 )
-        tmp2 = tmp - np.round(tt)
-
-        x, y = np.unravel_index( np.argmax(tmp2), tmp.shape )
+    for i in range(keypoints.shape[0]): # 对应这个关节点
+        tmp = det[i, :, :] # [128, 128]
+        tt = (((tag[i, :, :] - prev_tag[None, None, :])**2).sum(axis = 2)**0.5 ) # [128, 128]对应于每一个点的tag偏差
+        tmp2 = tmp - np.round(tt) # heatmap减去tags的偏差 是够可以用e^(-x)是求解
+        # tmp 的最大值可能不属于这个目标，但是这个其他目标的最大值减去tags偏差之后就会很小，甚至出现很多负数，这时候找最大值就是满足tags偏差很小的那些点里面找的最符合的关节点
+        x, y = np.unravel_index( np.argmax(tmp2), tmp.shape ) # 找到现在的最大值的位置
         xx = x
         yy = y
-        val = tmp[x, y]
+        val = tmp[x, y] # heatmap value
         x += 0.5
         y += 0.5
-
+        # 调整一下位置， 稍微偏向峰顶位置 adjust函数
         if tmp[xx, min(yy+1, det.shape[1]-1)]>tmp[xx, max(yy-1, 0)]:
             y+=0.25
         else:
@@ -61,8 +61,8 @@ def refine(det, tag, keypoints):
 
     if ans is not None:
         for i in range(17):
-            if ans[i, 2]>0 and keypoints[i, 2]==0:
-                keypoints[i, :2] = ans[i, :2]
+            if ans[i, 2]>0 and keypoints[i, 2]==0: # 如果之前没找到这个点，但是refine过程中找到了这个点
+                keypoints[i, :2] = ans[i, :2] # 就用refine结果去替代
                 keypoints[i, 2] = 1 
 
     return keypoints
@@ -126,15 +126,15 @@ def multiperson(img, func, mode):
     
     dets = np.minimum(dets, 1) # [17 128 128]
     grouped = parser.parse(np.float32([dets]), np.float32([tags]))[0] # [num_person, 17, 5]
-
+    # 进行group操作得到每个检测个体
 
     scores = [i[:, 2].mean() for  i in grouped] # [num_person] 用heatmap计算分数the score for every instance
 
     for i in range(len(grouped)): # 对于检测出来的每一个人
         grouped[i] = refine(dets, tags, grouped[i]) # 尝试找到那些没有检测到的点
-
+    #grouped [N, 17, 5]
     if len(grouped) > 0:
-        grouped[:,:,:2] = kpt_affine(grouped[:,:,:2] * 4, mat)
+        grouped[:,:,:2] = kpt_affine(grouped[:,:,:2] * 4, mat) # 把检测结果投到原图上面去 4是原图的下采样 512--》 128
     return grouped, scores
 
 def coco_eval(prefix, dt, gt):
@@ -189,18 +189,19 @@ def coco_eval(prefix, dt, gt):
 
 def genDtByPred(pred, image_id = 0):
     """
-    Generate the json-style data for the output 
+    Generate the json-style data for the output
+    pred =[N, 17, 3]
     """
     ans = []
-    for i in pred:
-        val = pred[i] if type(pred) == dict else i
-        if val[:, 2].max()>0:
-            tmp = {'image_id':int(image_id), "category_id": 1, "keypoints": [], "score":float(val[:, 2].mean())}
-            p = val[val[:, 2]> 0][:, :2].mean(axis = 0)
-            for j in val:
-                if j[2]>0.:
+    for i in pred: # 对应每一个个体的检测结果
+        val = pred[i] if type(pred) == dict else i  #[17, 3]
+        if val[:, 2].max()>0: #分数要大于0
+            tmp = {'image_id':int(image_id), "category_id": 1, "keypoints": [], "score":float(val[:, 2].mean())} # 输出格式
+            p = val[val[:, 2]> 0][:, :2].mean(axis = 0) #所有有效关节点的重心位置
+            for j in val: # 对于每一个关节点
+                if j[2]>0.: #  如果大于0则用预测位置
                     tmp["keypoints"] += [float(j[0]), float(j[1]), 1]
-                else:
+                else: # 如果分数不可靠就用重心位置
                     tmp["keypoints"] += [float(p[0]), float(p[1]), 1]
             ans.append(tmp)
     return ans
@@ -231,11 +232,11 @@ def main():
         return func(0, config, 'inference', imgs=torch.Tensor(np.float32(imgs)))['preds']
 
     def do(img):
-        ans, scores = multiperson(img, runner, mode) # [N, 17, 3] [N]
+        ans, scores = multiperson(img, runner, mode) # [N, 17, 5] [N]
         if len(ans) > 0:
-            ans = ans[:,:,:3]
+            ans = ans[:,:,:3]# [N, 17, 3] --x, y, value
 
-        pred = genDtByPred(ans) # [N]
+        pred = genDtByPred(ans) # [N]  Generate the json-style data for the output
 
         for i, score in zip( pred, scores ):
             i['score'] = float(score)

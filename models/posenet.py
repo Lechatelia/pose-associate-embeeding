@@ -38,6 +38,10 @@ class PoseNet(nn.Module):
         self.heatmapLoss = HeatmapLoss()
 
     def forward(self, imgs):
+        '''
+        :param imgs: [bs, 3, 128, 128]
+        :return:
+        '''
         x = imgs.permute(0, 3, 1, 2) # [bs, 3, 128, 128]
         x = self.pre(x) # [bs, 256, 128, 128]
         preds = []
@@ -49,20 +53,27 @@ class PoseNet(nn.Module):
         return torch.stack(preds, 1) # [bs, 4, 68, 128, 128] # 4是因为有一个堆叠的网络输出
 
     def calc_loss(self, preds, keypoints=None, heatmaps = None, masks = None):
-        dets = preds[:,:,:17]
-        tags = preds[:,:,17:34]
+        '''
+        :param preds:  [bs, 4, 68, 128, 128]
+        :param keypoints: [bs, 30, 17, 2]
+        :param heatmaps: [bs, 17, 128, 128]
+        :param masks: [bs ,128, 128]
+        :return:
+        '''
+        dets = preds[:,:,:17] # [bs, 4, 17, 128, 128]
+        tags = preds[:,:,17:34]  # [bs, 4, 17, 128, 128]
 
         keypoints = keypoints.cpu().long()
         batchsize = tags.size()[0]
 
         tag_loss = []
-        for i in range(self.nstack):
-            tag = tags[:,i].contiguous().view(batchsize, -1, 1)
-            tag_loss.append( self.myAEloss(tag, keypoints) ) # ae loss
-        tag_loss = torch.stack(tag_loss, dim = 1).cuda(tags.get_device())
+        for i in range(self.nstack): # for every stage
+            tag = tags[:,i].contiguous().view(batchsize, -1, 1) # [bs, 17*128*128, 1] tag_dim = 1
+            tag_loss.append( self.myAEloss(tag, keypoints) ) # ae loss [bs, 2]
+        tag_loss = torch.stack(tag_loss, dim = 1).cuda(tags.get_device()) # [bs, 4, 2]
 
         detection_loss = []
-        for i in range(self.nstack):
+        for i in range(self.nstack): # for every stage
             detection_loss.append( self.heatmapLoss(dets[:,i], heatmaps, masks) )
-        detection_loss = torch.stack(detection_loss, dim=1)
+        detection_loss = torch.stack(detection_loss, dim=1) # [bs, 4]
         return tag_loss[:,:,0], tag_loss[:,:,1], detection_loss

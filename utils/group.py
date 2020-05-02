@@ -29,14 +29,22 @@ def match_by_tag(inp, params, pad=False):
     Flag = False
     if Flag:
         # show the tags
-        m = val_k > params.detection_threshold
+        m = val_k > params.detection_threshold  # [17, 30]
         tag_m = tag_k[m]
-
-
+        import matplotlib.pyplot as plt
+        for e_idx in range(tag_k.shape[-1]):  # 绘制几个图
+            plt.figure()
+            for jo in range(tag_k.shape[0]):  # for every joints
+                jo_mask = m[jo]  # [30]
+                embedding = tag_k[jo, jo_mask, e_idx]
+                plt.plot(embedding, [jo] * len(embedding), 'o')
+            plt.xlabel('value of embedding')
+            plt.ylabel('body joints')
+            plt.show()
 
     # 用不同的embedding来表示一个单独的个体
     for i in range(params.num_parts): # 对于每一个part
-        ptIdx = params.partOrder[i]
+        ptIdx = params.partOrder[i] ##注意是按照这个顺序来进行关节点的解析的，开始都是那些比较明显清楚不容易被遮挡的点
 
         tags = tag_k[ptIdx] # 取出对应part的信息 [30, 2]
         joints = np.concatenate((loc_k[ptIdx], val_k[ptIdx, :, None], tags), 1) # [30, 5]
@@ -60,7 +68,7 @@ def match_by_tag(inp, params, pad=False):
 
             diff2 = np.copy(diff)
 
-            if params.use_detection_val :
+            if params.use_detection_val : # 这里就是利用到了heatmap 但感觉比较粗暴，可否用e^(-x)来进行衰减
                 diff = np.round(diff) * 100 - joints[:, 2:3]
 
             if diff.shape[0]>diff.shape[1]: # 当前part检测数目比已有的人数还要多
@@ -77,6 +85,18 @@ def match_by_tag(inp, params, pad=False):
                     dic2[key] = [tags[row]]
 
     ans = np.array([dic[i] for i in dic]) # [N, 17, 5]  N为检测出来的人个数
+    Show_Flag = Flag
+    if Show_Flag: # 可视化最终的检测结果
+        # show the embedding of detected instanes
+        import matplotlib.pyplot as plt
+        for e_idx in range(tag_k.shape[-1]):  # 绘制几个图
+            plt.figure()
+            for pep in ans: # [17, 5] for every people
+                plt.plot(pep[:, -e_idx], range(1, pep.shape[0]+1), 'o')
+            plt.show()
+
+
+
     if pad:
         num = len(ans)
         if num < params.max_num_people:
@@ -149,7 +169,7 @@ class HeatmapParser():
                     if joint[2]>0: # i如果heatmap大于0 说明这个关节点被检测出来了
                         y, x = joint[0:2]
                         xx, yy = int(x), int(y)
-                        #print(batch_id, joint_id, det[batch_id].shape)
+                        #print(batch_id, joint_id, det[batch_id].shape) 调整一下位置， 稍微偏向峰顶位置
                         tmp = det[batch_id][joint_id] #这个关节的热图 [128, 128]
                         if tmp[xx, min(yy+1, tmp.shape[1]-1)]>tmp[xx, max(yy-1, 0)]:
                             y+=0.25

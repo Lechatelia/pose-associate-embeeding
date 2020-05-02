@@ -12,10 +12,16 @@ class HeatmapLoss(torch.nn.Module):
         super(HeatmapLoss, self).__init__()
 
     def forward(self, pred, gt, masks):
+        '''
+        :param pred: [bs, 17, 128, 128]
+        :param gt: # [bs, 17, 128, 128]
+        :param masks: [bs, 128, 128]
+        :return:
+        '''
         assert pred.size() == gt.size()
         l = ((pred - gt)**2) * masks[:, None, :, :].expand_as(pred)
         l = l.mean(dim=3).mean(dim=2).mean(dim=1)
-        return l
+        return l #[bs]
 
 def singleTagLoss(pred_tag, keypoints):
     """

@@ -17,8 +17,10 @@ import shutil
 def parse_command_line():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--task', type=str, default='pose', help='task to be trained')
-    parser.add_argument('-c', '--continue_exp', default='pose', type=str, help='continue exp') # 测试或者继续训练就需要这个
-    parser.add_argument('-e', '--exp', type=str, default='pose', help='experiments name')
+    # parser.add_argument('-c', '--continue_exp', default='pose', type=str, help='continue exp') # 测试或者继续训练就需要这个
+    parser.add_argument('-c', '--continue_exp', default=None, type=str, help='continue exp') # 测试或者继续训练就需要这个
+    # parser.add_argument('-e', '--exp', type=str, default='pose', help='experiments name')
+    parser.add_argument('-e', '--exp', type=str, default='debug', help='experiments name')
     parser.add_argument('-m', '--mode', type=str, default='single', help='scale mode:single or multi')
     args = parser.parse_args()
     return args

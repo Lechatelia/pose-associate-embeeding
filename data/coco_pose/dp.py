@@ -13,39 +13,53 @@ class GenerateHeatmap():
         self.num_parts = num_parts
         sigma = self.output_res/64
         self.sigma = sigma
-        size = 6*sigma + 3
+        size = 6*sigma + 3 # 15
         x = np.arange(0, size, 1, float)
         y = x[:, np.newaxis]
         x0, y0 = 3*sigma + 1, 3*sigma + 1
+        # 产生一个大小为15x15的高斯核
         self.g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2))
+        '''
+        import matplotlib.pyplot as plt
+        plt.imshow(self.g)
+        plt.show() # show the guass kerenl
+        '''
 
     def __call__(self, keypoints):
-        hms = np.zeros(shape = (self.num_parts, self.output_res, self.output_res), dtype = np.float32)
-        sigma = self.sigma
-        for p in keypoints:
-            for idx, pt in enumerate(p):
-                if pt[2]>0:
-                    x, y = int(pt[0]), int(pt[1])
+        hms = np.zeros(shape = (self.num_parts, self.output_res, self.output_res), dtype = np.float32) # [17, 128, 128]
+        sigma = self.sigma # 2.0
+        for p in keypoints: # for every person [17, 3]
+            for idx, pt in enumerate(p): # for every part [3]
+                if pt[2]>0: # 有效part
+                    x, y = int(pt[0]), int(pt[1]) # part位置
                     if x<0 or y<0 or x>=self.output_res or y>=self.output_res:
                         #print('not in', x, y)
                         continue
-                    ul = int(x - 3*sigma - 1), int(y - 3*sigma - 1)
-                    br = int(x + 3*sigma + 2), int(y + 3*sigma + 2)
+                    ul = int(x - 3*sigma - 1), int(y - 3*sigma - 1) # 范围 upleft
+                    br = int(x + 3*sigma + 2), int(y + 3*sigma + 2) # bottomright
 
-                    c,d = max(0, -ul[0]), min(br[0], self.output_res) - ul[0]
-                    a,b = max(0, -ul[1]), min(br[1], self.output_res) - ul[1]
+                    # 高斯核范围，这时吧ul视为坐标原点 -ul
+                    c,d = max(0, -ul[0]), min(br[0], self.output_res) - ul[0] # 高斯核范围 x
+                    a,b = max(0, -ul[1]), min(br[1], self.output_res) - ul[1] # y
 
-                    cc,dd = max(0, ul[0]), min(br[0], self.output_res)
+                    # heatmap范围 这时把heatmap原点视为坐标原点
+                    cc,dd = max(0, ul[0]), min(br[0], self.output_res) # 原图中位置
                     aa,bb = max(0, ul[1]), min(br[1], self.output_res)
                     hms[idx, aa:bb,cc:dd] = np.maximum(hms[idx, aa:bb,cc:dd], self.g[a:b,c:d])
-        return hms
+        '''
+        #show heatmap
+        import matplotlib.pyplot as plt
+        plt.imshow(hms[1])
+        plt.show()   
+        '''
+        return hms # [17, 128, 128]
 
 class KeypointsRef():
     def __init__(self, max_num_people, num_parts):
         self.max_num_people = max_num_people
         self.num_parts = num_parts
 
-    def __call__(self, keypoints, output_res):
+    def __call__(self, keypoints, output_res): # 将keypints位置投射到0~17*128*128之间便于计算损失
         visible_nodes = np.zeros((self.max_num_people, self.num_parts, 2))
         for i in range(len(keypoints)):
             tot = 0
@@ -75,11 +89,11 @@ class Dataset(torch.utils.data.Dataset):
     def loadImage(self, idx):
         ds = self.ds
 
-        inp = ds.load_image(idx)
+        inp = ds.load_image(idx) # 得到图片
         mask = ds.get_mask(idx).astype(np.float32)
 
         ann = ds.get_anns(idx)
-        keypoints = ds.get_keypoints(idx, ann)
+        keypoints = ds.get_keypoints(idx, ann) # 得到关节点
 
         keypoints2 = [i for i in keypoints if np.sum(i[:, 2]>0)>1]
 
@@ -147,7 +161,7 @@ def init(config):
     import ref as ds
     ds.init()
 
-    train, valid = ds.setup_val_split()
+    train, valid = ds.setup_val_split() # 挑选有keypoints的样本作为数据集
     dataset = { key: Dataset(config, ds, data) for key, data in zip( ['train', 'valid'], [train, valid] ) }
 
     use_data_loader = config['train']['use_data_loader']

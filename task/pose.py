@@ -69,7 +69,7 @@ class Trainer(nn.Module):
             res = self.model(imgs, **inps)
             if type(res)!=list and type(res)!=tuple:
                 res = [res]
-            return list(res) + list(self.calc_loss(*res, **labels))
+            return list(res) + list(self.calc_loss(*res, **labels)) # 计算损失
 
 def make_network(configs):
     PoseNet = importNet(configs['network'])
